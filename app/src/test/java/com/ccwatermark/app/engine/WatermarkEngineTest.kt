@@ -1,0 +1,56 @@
+package com.ccwatermark.app.engine
+
+import android.graphics.Bitmap
+import android.graphics.Color
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class WatermarkEngineTest {
+    private lateinit var engine: WatermarkEngine
+    private val bitmaps = mutableListOf<Bitmap>()
+
+    @Before fun setUp() {
+        engine = WatermarkEngine(ApplicationProvider.getApplicationContext())
+    }
+
+    @After fun tearDown() {
+        bitmaps.forEach { if (!it.isRecycled) it.recycle() }
+    }
+
+    @Test fun transparentPhotoIsFlattenedOntoWhite() = runBlocking {
+        val source = bitmap(2, 1, Color.TRANSPARENT)
+        val watermark = bitmap(1, 1, Color.TRANSPARENT)
+
+        val result = engine.render(source, watermark, 1f, false)
+
+        assertEquals(Color.WHITE, result.getPixel(0, 0))
+        assertEquals(Color.WHITE, result.getPixel(1, 0))
+    }
+
+    @Test fun visibleWatermarkStillBlendsAfterFlattening() = runBlocking {
+        val source = bitmap(1, 1, Color.TRANSPARENT)
+        val watermark = bitmap(1, 1, Color.BLACK)
+
+        val result = engine.render(source, watermark, 0.5f, false)
+
+        assertEquals(255, Color.alpha(result.getPixel(0, 0)))
+        assertEquals(127, Color.red(result.getPixel(0, 0)))
+    }
+
+    private fun bitmap(width: Int, height: Int, color: Int): Bitmap =
+        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+            it.eraseColor(color)
+            bitmaps += it
+        }
+}

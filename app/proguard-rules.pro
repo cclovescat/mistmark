@@ -1,0 +1,2 @@
+-keepclassmembers class com.ccwatermark.app.data.WatermarkPreset { public <init>(...); }
+-dontwarn org.slf4j.**
