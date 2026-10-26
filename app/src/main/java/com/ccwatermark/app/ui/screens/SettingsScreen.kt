@@ -153,7 +153,7 @@ fun SettingsScreen(
                         UpdateStatus.CHECKING -> "正在检查…"
                         UpdateStatus.LATEST -> "重新检查"
                         UpdateStatus.AVAILABLE -> "查看新版本"
-                        UpdateStatus.DOWNLOADING -> "正在下载…"
+                        UpdateStatus.DOWNLOADING -> "查看下载进度"
                         UpdateStatus.READY_TO_INSTALL -> "安装更新"
                         UpdateStatus.ERROR -> "重试"
                         else -> "检查更新"
@@ -161,7 +161,7 @@ fun SettingsScreen(
                     Icons.Rounded.SystemUpdate,
                     updateViewModel::onUpdateClick,
                     Modifier.fillMaxWidth().padding(top = 12.dp),
-                    enabled = updateState.status != UpdateStatus.CHECKING && updateState.status != UpdateStatus.DOWNLOADING,
+                    enabled = updateState.status != UpdateStatus.CHECKING,
                 )
             }
         }
@@ -184,6 +184,7 @@ fun SettingsScreen(
             state = updateState,
             onDismiss = updateViewModel::dismissDialog,
             onDownload = updateViewModel::downloadUpdate,
+            onCancelDownload = updateViewModel::cancelDownload,
             onInstall = updateViewModel::installUpdate,
         )
     }
@@ -194,6 +195,7 @@ private fun UpdateDialog(
     state: UpdateUiState,
     onDismiss: () -> Unit,
     onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onInstall: () -> Unit,
 ) {
     val release = state.release ?: return
@@ -221,12 +223,12 @@ private fun UpdateDialog(
             when (state.status) {
                 UpdateStatus.AVAILABLE, UpdateStatus.ERROR -> TextButton(onDownload) { Text("下载并安装", color = Mint) }
                 UpdateStatus.READY_TO_INSTALL -> TextButton(onInstall) { Text("安装更新", color = Mint) }
-                UpdateStatus.DOWNLOADING -> TextButton({}, enabled = false) { Text("下载中") }
+                UpdateStatus.DOWNLOADING -> TextButton(onCancelDownload) { Text("取消下载") }
                 else -> Unit
             }
         },
         dismissButton = {
-            TextButton(onDismiss, enabled = state.status != UpdateStatus.DOWNLOADING) { Text("关闭") }
+            TextButton(onDismiss) { Text("关闭") }
         },
     )
 }

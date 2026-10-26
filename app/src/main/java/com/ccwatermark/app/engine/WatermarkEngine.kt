@@ -18,64 +18,66 @@ import java.io.File
 import kotlin.math.min
 
 class WatermarkEngine(private val context: Context) {
-    suspend fun preview(photo: Uri, preset: WatermarkPreset, opacity: Float): Bitmap =
+    suspend fun preview(photo: Uri, presets: List<WatermarkPreset>, opacity: Float, invertEnabled: Boolean): Bitmap =
         withContext(Dispatchers.Default) {
+            require(presets.isNotEmpty()) { "请选择至少一个水印预设" }
             val originalSize = readSize(photo)
-            val source = decodeUri(photo, 1600)
+            var result = decodeUri(photo, 1600)
             try {
-                val watermark = BitmapFactory.decodeFile(preset.imagePath)
-                    ?: error("无法读取水印图")
-                // Only the lightweight on-screen preview is downsampled. Both layers use
-                // the same ratio, so it faithfully represents the unscaled export tile.
                 val originalOrientedWidth = if (readOrientation(photo) in ROTATED_ORIENTATIONS) originalSize.second else originalSize.first
-                val previewScale = source.width.toFloat() / originalOrientedWidth
-                val previewWatermark = if (previewScale < .99f) {
-                    Bitmap.createScaledBitmap(
-                        watermark,
-                        maxOf(1, (watermark.width * previewScale).toInt()),
-                        maxOf(1, (watermark.height * previewScale).toInt()),
-                        true,
-                    )
-                } else watermark
-                try {
-                    render(source, previewWatermark, opacity, preset.autoInvert)
-                } finally {
-                    if (previewWatermark !== watermark) previewWatermark.recycle()
-                    watermark.recycle()
+                val previewScale = result.width.toFloat() / originalOrientedWidth
+                for (preset in presets) {
+                    val watermark = BitmapFactory.decodeFile(preset.imagePath)
+                        ?: error("无法读取水印图")
+                    val previewWatermark = if (previewScale < .99f) {
+                        Bitmap.createScaledBitmap(
+                            watermark,
+                            maxOf(1, (watermark.width * previewScale).toInt()),
+                            maxOf(1, (watermark.height * previewScale).toInt()),
+                            true,
+                        )
+                    } else watermark
+                    try {
+                        result = render(result, previewWatermark, opacity, invertEnabled && preset.autoInvert)
+                    } finally {
+                        if (previewWatermark !== watermark) previewWatermark.recycle()
+                        watermark.recycle()
+                    }
                 }
+                result
             } catch (error: Throwable) {
-                if (!source.isRecycled) source.recycle()
+                if (!result.isRecycled) result.recycle()
                 throw error
             }
         }
 
-    suspend fun renderToCache(photo: Uri, preset: WatermarkPreset, opacity: Float): File =
+    suspend fun renderToCache(photo: Uri, presets: List<WatermarkPreset>, opacity: Float, invertEnabled: Boolean): File =
         withContext(Dispatchers.Default) {
-            val source = decodeUri(photo, Int.MAX_VALUE)
-            var result: Bitmap? = null
+            require(presets.isNotEmpty()) { "请选择至少一个水印预设" }
+            var result = decodeUri(photo, Int.MAX_VALUE)
             var output: File? = null
             try {
-                val watermark = BitmapFactory.decodeFile(preset.imagePath)
-                    ?: error("无法读取水印图")
-                val rendered = try {
-                    render(source, watermark, opacity, preset.autoInvert)
-                } finally {
-                    watermark.recycle()
+                for (preset in presets) {
+                    val watermark = BitmapFactory.decodeFile(preset.imagePath)
+                        ?: error("无法读取水印图")
+                    result = try {
+                        render(result, watermark, opacity, invertEnabled && preset.autoInvert)
+                    } finally {
+                        watermark.recycle()
+                    }
                 }
-                result = rendered
                 val outputFile = File(context.cacheDir, "rendered/${System.nanoTime()}.png")
                 output = outputFile
                 outputFile.parentFile?.mkdirs()
                 outputFile.outputStream().buffered().use {
-                    check(rendered.compress(Bitmap.CompressFormat.PNG, 100, it))
+                    check(result.compress(Bitmap.CompressFormat.PNG, 100, it))
                 }
                 outputFile
             } catch (error: Throwable) {
                 output?.delete()
-                if (result == null && !source.isRecycled) source.recycle()
                 throw error
             } finally {
-                result?.recycle()
+                if (!result.isRecycled) result.recycle()
             }
         }
 
@@ -121,7 +123,7 @@ class WatermarkEngine(private val context: Context) {
                     val tileWidth = right - left
                     val tileHeight = bottom - top
                     output.getPixels(tilePixels, 0, tileWidth, left, top, tileWidth, tileHeight)
-                    val white = WatermarkMath.useWhiteInk(regionLuminance(tilePixels, tileWidth, tileHeight))
+                    val white = useWhiteInk(tilePixels, tileWidth, tileHeight, wmPixels, watermark.width)
                     for (y in 0 until tileHeight) {
                         currentCoroutineContext().ensureActive()
                         for (x in 0 until tileWidth) {
@@ -153,19 +155,34 @@ class WatermarkEngine(private val context: Context) {
     private fun blend(background: Int, ink: Int, alpha: Float): Int =
         (background + (ink - background) * alpha).toInt().coerceIn(0, 255)
 
-    private fun regionLuminance(pixels: IntArray, width: Int, height: Int): Float {
+    private fun useWhiteInk(pixels: IntArray, width: Int, height: Int, watermarkPixels: IntArray, watermarkWidth: Int): Boolean {
         val stepX = maxOf(1, width / 32)
         val stepY = maxOf(1, height / 32)
-        var sum = 0.0
-        var count = 0
+        val histogram = DoubleArray(256)
+        var totalWeight = 0.0
         for (y in 0 until height step stepY) {
             for (x in 0 until width step stepX) {
+                val alpha = Color.alpha(watermarkPixels[y * watermarkWidth + x])
+                if (alpha == 0) continue
+                val weight = alpha / 255.0
                 val color = pixels[y * width + x]
-                sum += WatermarkMath.luminance(Color.red(color), Color.green(color), Color.blue(color))
-                count++
+                val luminance = WatermarkMath.relativeLuminance(Color.red(color), Color.green(color), Color.blue(color))
+                val bin = (luminance * 255).toInt().coerceIn(0, 255)
+                histogram[bin] += weight
+                totalWeight += weight
             }
         }
-        return if (count == 0) 0f else (sum / count).toFloat()
+        if (totalWeight == 0.0) return false
+        var accumulated = 0.0
+        var median = 0
+        for (index in histogram.indices) {
+            accumulated += histogram[index]
+            if (accumulated >= totalWeight / 2) {
+                median = index
+                break
+            }
+        }
+        return WatermarkMath.useWhiteInk(median / 255f)
     }
 
     private fun readSize(uri: Uri): Pair<Int, Int> {

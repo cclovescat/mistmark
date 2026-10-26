@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
@@ -21,6 +22,7 @@ class PresetStore(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
     private val presetsKey = stringPreferencesKey("presets")
     private val selectedKey = stringPreferencesKey("selected_preset")
+    private val selectedPresetsKey = stringPreferencesKey("selected_presets")
     private val opacityKey = floatPreferencesKey("opacity")
     private val themeModeKey = stringPreferencesKey("theme_mode")
     private val fontSizeKey = stringPreferencesKey("font_size")
@@ -33,9 +35,13 @@ class PresetStore(private val context: Context) {
         val presets = preferences[presetsKey]?.let {
             runCatching { json.decodeFromString(ListSerializer(WatermarkPreset.serializer()), it) }.getOrNull()
         }?.filter { File(it.imagePath).exists() } ?: emptyList()
+        val storedIds = preferences[selectedPresetsKey]?.let {
+            runCatching { json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull()
+        } ?: listOfNotNull(preferences[selectedKey])
+        val selectedIds = storedIds.distinct().filter { id -> presets.any { it.id == id } }
         return StoredSettings(
             presets = presets,
-            selectedId = preferences[selectedKey]?.takeIf { id -> presets.any { it.id == id } } ?: presets.firstOrNull()?.id,
+            selectedIds = selectedIds,
             opacity = preferences[opacityKey]?.coerceIn(0.05f, 1f) ?: 0.55f,
             themeMode = preferences[themeModeKey]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
             fontSize = preferences[fontSizeKey]?.let { runCatching { FontSizeOption.valueOf(it) }.getOrNull() } ?: FontSizeOption.STANDARD,
@@ -57,20 +63,20 @@ class PresetStore(private val context: Context) {
         }
         val preset = WatermarkPreset(id, name.trim().ifBlank { "未命名水印" }, output.absolutePath, autoInvert, bounds.outWidth, bounds.outHeight)
         val current = read()
-        savePresets(current.presets + preset, preset.id)
+        savePresets(current.presets + preset, current.selectedIds + preset.id)
         preset
     }
 
     suspend fun rename(preset: WatermarkPreset, name: String): Unit = mutex.withLock {
         val current = read()
-        savePresets(current.presets.map { if (it.id == preset.id) it.copy(name = name.trim()) else it }, current.selectedId)
+        savePresets(current.presets.map { if (it.id == preset.id) it.copy(name = name.trim()) else it }, current.selectedIds)
     }
 
     suspend fun toggle(preset: WatermarkPreset): WatermarkPreset = mutex.withLock {
         val current = read()
         val presets = current.presets.map { if (it.id == preset.id) it.copy(autoInvert = !it.autoInvert) else it }
         val updated = presets.first { it.id == preset.id }
-        savePresets(presets, current.selectedId)
+        savePresets(presets, current.selectedIds)
         updated
     }
 
@@ -78,15 +84,18 @@ class PresetStore(private val context: Context) {
         mutex.withLock {
             val current = read()
             val remaining = current.presets.filterNot { it.id == preset.id }
-            savePresets(remaining, if (current.selectedId == preset.id) remaining.firstOrNull()?.id else current.selectedId)
+            savePresets(remaining, current.selectedIds.filterNot { it == preset.id })
         }
         // Metadata commits first; a failed file cleanup can only leave an orphan, never a broken preset.
         File(preset.imagePath).delete()
     }
 
-    suspend fun select(id: String): Unit = mutex.withLock {
+    suspend fun toggleSelection(id: String): List<String> = mutex.withLock {
         val current = read()
-        savePresets(current.presets, id)
+        require(current.presets.any { it.id == id }) { "水印预设不存在" }
+        val selectedIds = if (id in current.selectedIds) current.selectedIds - id else current.selectedIds + id
+        savePresets(current.presets, selectedIds)
+        selectedIds
     }
 
     suspend fun setOpacity(value: Float): Unit = mutex.withLock {
@@ -101,17 +110,18 @@ class PresetStore(private val context: Context) {
         context.store.edit { it[fontSizeKey] = option.name }
     }
 
-    private suspend fun savePresets(presets: List<WatermarkPreset>, selectedId: String?) {
+    private suspend fun savePresets(presets: List<WatermarkPreset>, selectedIds: List<String>) {
         context.store.edit {
             it[presetsKey] = json.encodeToString(ListSerializer(WatermarkPreset.serializer()), presets)
-            if (selectedId == null) it.remove(selectedKey) else it[selectedKey] = selectedId
+            it[selectedPresetsKey] = json.encodeToString(ListSerializer(String.serializer()), selectedIds)
+            it.remove(selectedKey)
         }
     }
 }
 
 data class StoredSettings(
     val presets: List<WatermarkPreset>,
-    val selectedId: String?,
+    val selectedIds: List<String>,
     val opacity: Float,
     val themeMode: ThemeMode,
     val fontSize: FontSizeOption,

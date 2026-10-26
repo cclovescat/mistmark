@@ -99,7 +99,7 @@ fun PresetsScreen(
             }
         }
         state.presets.forEach { preset ->
-            PresetCard(preset, preset.id == state.selectedPresetId, busy = state.busy, onSelect = { onSelect(preset.id) }, onRename = { renaming = preset }, onToggle = { onToggle(preset) }, onDelete = { deleting = preset })
+            PresetCard(preset, preset.id in state.selectedPresetIds, busy = state.busy, onSelect = { onSelect(preset.id) }, onRename = { renaming = preset }, onToggle = { onToggle(preset) }, onDelete = { deleting = preset })
         }
     }
 

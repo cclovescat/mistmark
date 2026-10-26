@@ -20,6 +20,8 @@ data class PhotoItem(
     val state: PhotoState = PhotoState.READY,
     val outputPath: String? = null,
     val errorMessage: String? = null,
+    val appliedPresets: List<WatermarkPreset> = emptyList(),
+    val invertEnabled: Boolean = true,
 )
 
 enum class PhotoState { READY, WORKING, DONE, SAVED, ERROR }

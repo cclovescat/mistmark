@@ -80,7 +80,9 @@ class GitHubUpdateManager(private val context: Context) {
             val expectedHash = apk.digest?.let {
                 require(it.startsWith("sha256:")) { "无法识别 APK 校验算法" }
                 it.removePrefix("sha256:")
-            }
+            } ?: release.assets.firstOrNull { it.name == "${apk.name}.sha256" }?.let { readChecksum(it.downloadUrl) }
+                ?: error("APK 缺少 SHA-256 校验信息")
+            require(expectedHash.matches(Regex("(?i)[0-9a-f]{64}"))) { "APK 校验信息格式无效" }
             ReleaseInfo(
                 version = release.tagName.removePrefix("v").removePrefix("V"),
                 title = release.name?.takeIf { it.isNotBlank() } ?: release.tagName,
@@ -101,6 +103,7 @@ class GitHubUpdateManager(private val context: Context) {
         if (!directory.exists() && !directory.mkdirs()) error("无法创建更新目录")
         val output = File(directory, "mistmark-${release.version}.apk")
         val temporary = File(directory, "mistmark-${release.version}.apk.part")
+        directory.listFiles()?.filter { it.name.endsWith(".apk") && it.name != output.name }?.forEach { it.delete() }
         val connection = open(release.apkUrl)
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) error("下载失败（HTTP ${connection.responseCode}）")
@@ -122,7 +125,8 @@ class GitHubUpdateManager(private val context: Context) {
             }
             if (downloaded == 0L) error("下载的 APK 文件为空")
             val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
-            if (release.sha256 != null && !actualHash.equals(release.sha256, ignoreCase = true)) error("APK 校验失败，请重新下载")
+            val expectedHash = requireNotNull(release.sha256) { "APK 缺少 SHA-256 校验信息" }
+            if (!actualHash.equals(expectedHash, ignoreCase = true)) error("APK 校验失败，请重新下载")
             if (output.exists() && !output.delete()) error("无法替换旧安装包")
             if (!temporary.renameTo(output)) error("无法保存安装包")
             onProgress(1f)
@@ -149,6 +153,19 @@ class GitHubUpdateManager(private val context: Context) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+    }
+
+    private fun readChecksum(url: String): String {
+        val uri = URL(url)
+        require(uri.protocol == "https" && uri.host == "github.com") { "校验文件地址不受信任" }
+        val connection = open(url)
+        try {
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) error("无法读取 APK 校验文件")
+            val text = connection.inputStream.bufferedReader().use { it.readText() }
+            return Regex("(?i)\\b[0-9a-f]{64}\\b").find(text)?.value ?: error("APK 校验文件格式无效")
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun open(url: String): HttpURLConnection =

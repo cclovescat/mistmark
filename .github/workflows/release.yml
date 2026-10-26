@@ -39,6 +39,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Validate release version
+        run: |
+          version_name="$(perl -ne 'print $1 if /versionName\s*=\s*"([^"]+)"/' app/build.gradle.kts)"
+          if [[ "$RELEASE_TAG" != "v$version_name" ]]; then
+            echo "Release tag $RELEASE_TAG does not match versionName $version_name" >&2
+            exit 1
+          fi
+
       - name: Decode signing key
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -68,10 +76,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$RELEASE_TAG" \
-            "$RUNNER_TEMP/MistMark-${RELEASE_TAG#v}.apk" \
-            "$RUNNER_TEMP/MistMark-${RELEASE_TAG#v}.apk.sha256" \
-            --title "MistMark ${RELEASE_TAG#v}" \
-            --generate-notes \
-            --latest \
-            --verify-tag
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "$RUNNER_TEMP/MistMark-${RELEASE_TAG#v}.apk" \
+              "$RUNNER_TEMP/MistMark-${RELEASE_TAG#v}.apk.sha256" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "$RUNNER_TEMP/MistMark-${RELEASE_TAG#v}.apk" \
+              "$RUNNER_TEMP/MistMark-${RELEASE_TAG#v}.apk.sha256" \
+              --title "MistMark ${RELEASE_TAG#v}" \
+              --generate-notes \
+              --latest \
+              --verify-tag
+          fi

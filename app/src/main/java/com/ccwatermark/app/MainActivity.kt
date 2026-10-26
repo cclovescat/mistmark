@@ -53,7 +53,7 @@ fun MistMarkApp(viewModel: AppViewModel = viewModel()) {
     var tab by remember { mutableIntStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(50)) { uris -> viewModel.addPhotos(uris) }
-    val preset = state.presets.find { it.id == state.selectedPresetId }
+    val selectedPresets = state.selectedPresetIds.mapNotNull { id -> state.presets.find { it.id == id } }
 
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); viewModel.consumeMessage() }
@@ -76,7 +76,7 @@ fun MistMarkApp(viewModel: AppViewModel = viewModel()) {
                     Box(Modifier.weight(1f)) {
                         when (tab) {
                             0 -> HomeScreen(
-                                state, preset,
+                                state, selectedPresets,
                                 onOpacity = viewModel::setOpacity,
                                 onAddPhotos = { if (!state.busy) picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                 onGoPresets = { tab = 1 },
@@ -85,6 +85,8 @@ fun MistMarkApp(viewModel: AppViewModel = viewModel()) {
                                 onRemovePhoto = viewModel::removePhoto,
                                 onClear = viewModel::clearPhotos,
                                 onProcess = viewModel::processAll,
+                                onReprocess = viewModel::reprocessSelectedPhoto,
+                                onToggleInvert = viewModel::togglePhotoInvert,
                                 onSave = viewModel::saveAll,
                             )
                             1 -> PresetsScreen(state, viewModel::importWatermark, viewModel::selectPreset, viewModel::renamePreset, viewModel::togglePreset, viewModel::deletePreset)

@@ -31,7 +31,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { store.load() }.onSuccess { settings ->
                 _state.value = _state.value.copy(
                     presets = settings.presets,
-                    selectedPresetId = settings.selectedId,
+                    selectedPresetIds = settings.selectedIds,
                     opacity = settings.opacity,
                     themeMode = settings.themeMode,
                     fontSize = settings.fontSize,
@@ -41,7 +41,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    val selectedPreset: WatermarkPreset? get() = _state.value.presets.find { it.id == _state.value.selectedPresetId }
+    val selectedPresets: List<WatermarkPreset> get() = _state.value.selectedPresetIds.mapNotNull { id -> _state.value.presets.find { it.id == id } }
 
     fun addPhotos(uris: List<Uri>) {
         if (_state.value.busy) return
@@ -71,9 +71,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun selectPreset(id: String) {
         if (_state.value.busy) return
         launchSafely {
-            store.select(id)
-            _state.value = _state.value.copy(selectedPresetId = id)
-            invalidateResults()
+            val selectedIds = store.toggleSelection(id)
+            _state.value = _state.value.copy(selectedPresetIds = selectedIds)
         }
     }
 
@@ -81,8 +80,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (_state.value.busy) return
         launchSafely {
             val preset = store.importWatermark(uri, name, autoInvert)
-            _state.value = _state.value.copy(presets = _state.value.presets + preset, selectedPresetId = preset.id, message = "预设已保存")
-            invalidateResults()
+            _state.value = _state.value.copy(
+                presets = _state.value.presets + preset,
+                selectedPresetIds = _state.value.selectedPresetIds + preset.id,
+                message = "预设已保存并选中",
+            )
         }
     }
 
@@ -100,7 +102,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         launchSafely {
             val updated = store.toggle(preset)
             _state.value = _state.value.copy(presets = _state.value.presets.map { if (it.id == updated.id) updated else it })
-            invalidateResults()
         }
     }
 
@@ -109,15 +110,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         launchSafely {
             store.delete(preset)
             val remaining = _state.value.presets.filterNot { it.id == preset.id }
-            _state.value = _state.value.copy(presets = remaining, selectedPresetId = if (_state.value.selectedPresetId == preset.id) remaining.firstOrNull()?.id else _state.value.selectedPresetId, message = "预设已删除")
-            invalidateResults()
+            _state.value = _state.value.copy(
+                presets = remaining,
+                selectedPresetIds = _state.value.selectedPresetIds.filterNot { it == preset.id },
+                message = "预设已删除",
+            )
         }
     }
 
     fun setOpacity(value: Float) {
         if (_state.value.busy) return
         _state.value = _state.value.copy(opacity = value)
-        invalidateResults()
         launchSafely { store.setOpacity(value) }
     }
 
@@ -132,9 +135,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun processAll() {
-        val preset = selectedPreset
-        if (preset == null) {
-            _state.value = _state.value.copy(message = "请先创建或选择一个水印预设")
+        val presets = selectedPresets
+        if (presets.isEmpty()) {
+            _state.value = _state.value.copy(message = "请选择至少一个水印预设")
             return
         }
         if (_state.value.photos.isEmpty() || _state.value.busy) return
@@ -143,20 +146,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val photos = _state.value.photos
             photos.forEachIndexed { index, item ->
-                item.outputPath?.let { path -> File(path).delete() }
-                updatePhoto(item.id) { it.copy(state = PhotoState.WORKING, outputPath = null, errorMessage = null) }
-                try {
-                    val output = engine.renderToCache(item.uri, preset, opacity)
-                    updatePhoto(item.id) { it.copy(state = PhotoState.DONE, outputPath = output.absolutePath) }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Throwable) {
-                    updatePhoto(item.id) { it.copy(state = PhotoState.ERROR, errorMessage = error.message ?: "无法处理照片") }
-                }
+                renderPhoto(item, presets, item.invertEnabled)
                 _state.value = _state.value.copy(progress = (index + 1f) / photos.size)
             }
             val failed = _state.value.photos.count { it.state == PhotoState.ERROR }
             _state.value = _state.value.copy(busy = false, message = if (failed == 0) "水印照片已生成，可以批量保存" else "$failed 张照片处理失败，其余可正常保存")
+        }
+    }
+
+    fun reprocessSelectedPhoto() {
+        if (_state.value.busy) return
+        val item = _state.value.photos.find { it.id == _state.value.selectedPhotoId } ?: return
+        val additional = selectedPresets
+        if (item.outputPath == null || item.appliedPresets.isEmpty()) {
+            _state.value = _state.value.copy(message = "请先生成照片，再追加其他水印")
+            return
+        }
+        if (additional.isEmpty()) {
+            _state.value = _state.value.copy(message = "请选择要追加的水印预设")
+            return
+        }
+        _state.value = _state.value.copy(busy = true, progress = 0f)
+        viewModelScope.launch {
+            renderPhoto(item, item.appliedPresets + additional, item.invertEnabled)
+            _state.value = _state.value.copy(busy = false, progress = 1f, message = "已追加水印，相册将只保存最终版本")
+        }
+    }
+
+    fun togglePhotoInvert(id: String) {
+        if (_state.value.busy) return
+        val item = _state.value.photos.find { it.id == id } ?: return
+        val invertEnabled = !item.invertEnabled
+        updatePhoto(id) { it.copy(invertEnabled = invertEnabled) }
+        if (item.appliedPresets.isEmpty()) return
+        _state.value = _state.value.copy(busy = true, progress = 0f)
+        viewModelScope.launch {
+            renderPhoto(item, item.appliedPresets, invertEnabled)
+            _state.value = _state.value.copy(busy = false, progress = 1f)
         }
     }
 
@@ -170,7 +196,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             pending.forEachIndexed { index, item ->
                 try {
                     saveToGallery(item)
-                    updatePhoto(item.id) { it.copy(state = PhotoState.SAVED) }
+                    updatePhoto(item.id) { it.copy(state = PhotoState.SAVED, errorMessage = null) }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
@@ -184,6 +210,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun consumeMessage() { _state.value = _state.value.copy(message = null) }
+
+    private suspend fun renderPhoto(item: PhotoItem, presets: List<WatermarkPreset>, invertEnabled: Boolean) {
+        val previousPath = item.outputPath
+        updatePhoto(item.id) { it.copy(state = PhotoState.WORKING, errorMessage = null) }
+        try {
+            val output = engine.renderToCache(item.uri, presets, _state.value.opacity, invertEnabled)
+            if (previousPath != null && previousPath != output.absolutePath) File(previousPath).delete()
+            updatePhoto(item.id) {
+                it.copy(
+                    state = PhotoState.DONE,
+                    outputPath = output.absolutePath,
+                    appliedPresets = presets,
+                    invertEnabled = invertEnabled,
+                    errorMessage = null,
+                )
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            updatePhoto(item.id) {
+                it.copy(
+                    state = PhotoState.ERROR,
+                    outputPath = previousPath,
+                    errorMessage = error.message ?: "无法处理照片",
+                )
+            }
+        }
+    }
 
     private suspend fun saveToGallery(item: PhotoItem) = withContext(Dispatchers.IO) {
         val path = item.outputPath ?: error("尚未生成")
@@ -213,21 +267,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun invalidateResults() {
-        _state.value.photos.forEach { it.outputPath?.let { path -> File(path).delete() } }
-        _state.value = _state.value.copy(photos = _state.value.photos.map { it.copy(state = PhotoState.READY, outputPath = null, errorMessage = null) })
-    }
-
     private fun updatePhoto(id: String, transform: (PhotoItem) -> PhotoItem) {
         _state.value = _state.value.copy(photos = _state.value.photos.map { if (it.id == id) transform(it) else it })
     }
 
     private fun displayName(uri: Uri): String {
-        getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (column >= 0 && cursor.moveToFirst()) return cursor.getString(column)
+        val fallback = "photo_${System.currentTimeMillis()}.jpg"
+        return try {
+            getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column >= 0 && cursor.moveToFirst()) cursor.getString(column)?.takeIf { it.isNotBlank() } else null
+            } ?: fallback
+        } catch (error: Exception) {
+            fallback
         }
-        return "photo_${System.currentTimeMillis()}.jpg"
     }
 
     private fun launchSafely(block: suspend () -> Unit) {
@@ -246,7 +299,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 data class AppState(
     val loaded: Boolean = false,
     val presets: List<WatermarkPreset> = emptyList(),
-    val selectedPresetId: String? = null,
+    val selectedPresetIds: List<String> = emptyList(),
     val photos: List<PhotoItem> = emptyList(),
     val selectedPhotoId: String? = null,
     val opacity: Float = 0.55f,

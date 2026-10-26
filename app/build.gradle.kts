@@ -12,8 +12,8 @@ android {
         applicationId = "com.ccwatermark.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.3.0"
+        versionCode = 6
+        versionName = "1.4.0"
         buildConfigField("String", "GITHUB_REPOSITORY", "\"cclovescat/mistmark\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

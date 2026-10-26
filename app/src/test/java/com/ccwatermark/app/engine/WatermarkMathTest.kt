@@ -23,13 +23,16 @@ class WatermarkMathTest {
         assertArrayEquals(IntArray(0), WatermarkMath.tileOrigins(0, 128))
     }
 
-    @Test fun localLuminanceChoosesContrastingInk() {
-        assertTrue(WatermarkMath.useWhiteInk(0.2f))
+    @Test fun relativeLuminanceChoosesHigherContrastInk() {
+        assertTrue(WatermarkMath.useWhiteInk(0.1f))
+        assertFalse(WatermarkMath.useWhiteInk(0.5f))
         assertFalse(WatermarkMath.useWhiteInk(0.8f))
     }
 
     @Test fun luminanceUsesPerceptualWeights() {
         assertEquals(1f, WatermarkMath.luminance(255, 255, 255), 0.0001f)
         assertEquals(0f, WatermarkMath.luminance(0, 0, 0), 0.0001f)
+        assertEquals(1f, WatermarkMath.relativeLuminance(255, 255, 255), 0.0001f)
+        assertEquals(0f, WatermarkMath.relativeLuminance(0, 0, 0), 0.0001f)
     }
 }

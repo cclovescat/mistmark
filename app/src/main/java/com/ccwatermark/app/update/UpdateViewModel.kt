@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ccwatermark.app.BuildConfig
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,7 @@ data class UpdateUiState(
 
 class UpdateViewModel(application: Application) : AndroidViewModel(application) {
     private val manager = GitHubUpdateManager(application)
+    private var downloadJob: Job? = null
     private val _state = MutableStateFlow(UpdateUiState())
     val state: StateFlow<UpdateUiState> = _state.asStateFlow()
 
@@ -35,7 +37,8 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
             UpdateStatus.ERROR -> if (_state.value.release != null) {
                 _state.value = _state.value.copy(showDialog = true)
             } else checkForUpdates()
-            UpdateStatus.CHECKING, UpdateStatus.DOWNLOADING -> Unit
+            UpdateStatus.DOWNLOADING -> _state.value = _state.value.copy(showDialog = true)
+            UpdateStatus.CHECKING -> Unit
             else -> checkForUpdates()
         }
     }
@@ -63,7 +66,7 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
         val release = _state.value.release ?: return
         if (_state.value.status == UpdateStatus.DOWNLOADING) return
         _state.value = _state.value.copy(status = UpdateStatus.DOWNLOADING, progress = 0f, errorMessage = null, showDialog = true)
-        viewModelScope.launch {
+        downloadJob = viewModelScope.launch {
             try {
                 val apk = manager.download(release) { progress ->
                     _state.value = _state.value.copy(progress = progress)
@@ -78,22 +81,39 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
                 throw error
             } catch (error: Throwable) {
                 _state.value = _state.value.copy(status = UpdateStatus.ERROR, errorMessage = error.message ?: "下载失败，请稍后重试")
+            } finally {
+                downloadJob = null
             }
         }
     }
 
+    fun cancelDownload() {
+        downloadJob?.cancel()
+        downloadJob = null
+        _state.value = _state.value.copy(status = UpdateStatus.AVAILABLE, progress = 0f, showDialog = false)
+    }
+
     fun installUpdate() {
         val path = _state.value.downloadedApkPath ?: return
+        val apk = File(path)
+        if (!apk.isFile) {
+            _state.value = _state.value.copy(
+                status = UpdateStatus.AVAILABLE,
+                downloadedApkPath = null,
+                progress = 0f,
+                showDialog = true,
+                errorMessage = "安装包已被清理，请重新下载",
+            )
+            return
+        }
         try {
-            manager.install(File(path))
+            manager.install(apk)
         } catch (error: Throwable) {
             _state.value = _state.value.copy(errorMessage = error.message ?: "无法打开系统安装器")
         }
     }
 
     fun dismissDialog() {
-        if (_state.value.status != UpdateStatus.DOWNLOADING) {
-            _state.value = _state.value.copy(showDialog = false)
-        }
+        _state.value = _state.value.copy(showDialog = false)
     }
 }

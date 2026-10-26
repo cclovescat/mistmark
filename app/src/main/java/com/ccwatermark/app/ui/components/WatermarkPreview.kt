@@ -37,33 +37,41 @@ import com.ccwatermark.app.ui.theme.TextSecondary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
+private data class PreviewState(
+    val bitmap: Bitmap? = null,
+    val loading: Boolean = false,
+    val failed: Boolean = false,
+)
+
 @Composable
-fun WatermarkPreview(photo: PhotoItem?, preset: WatermarkPreset?, opacity: Float, modifier: Modifier = Modifier) {
+fun WatermarkPreview(photo: PhotoItem?, presets: List<WatermarkPreset>, opacity: Float, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val rendered by produceState<Bitmap?>(null, photo?.uri, photo?.state, photo?.outputPath, preset, opacity) {
-        value = null
+    val effectivePresets = photo?.appliedPresets?.ifEmpty { presets } ?: emptyList()
+    val preview by produceState(PreviewState(), photo?.uri, photo?.state, photo?.outputPath, photo?.invertEnabled, effectivePresets, opacity) {
+        value = PreviewState(loading = photo != null && effectivePresets.isNotEmpty())
         try {
-            if (photo != null && preset != null) {
+            if (photo != null && effectivePresets.isNotEmpty()) {
                 if (photo.outputPath == null) delay(180)
-                value = if (photo.outputPath != null) android.graphics.BitmapFactory.decodeFile(photo.outputPath)
-                else WatermarkEngine(context.applicationContext).preview(photo.uri, preset, opacity)
+                val bitmap = if (photo.outputPath != null) android.graphics.BitmapFactory.decodeFile(photo.outputPath)
+                else WatermarkEngine(context.applicationContext).preview(photo.uri, effectivePresets, opacity, photo.invertEnabled)
+                value = PreviewState(bitmap = bitmap ?: error("无法读取预览图"))
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            value = null
+            value = PreviewState(failed = true)
         }
     }
     Box(modifier, contentAlignment = Alignment.Center) {
         when {
             photo == null -> EmptyPreview()
-            rendered != null -> RenderedPreview(rendered!!)
-            else -> {
-                AsyncImage(photo.uri, "待处理照片", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                if (preset != null) CircularProgressIndicator(Modifier.size(28.dp), color = Mint, strokeWidth = 2.dp)
-            }
+            preview.bitmap != null -> RenderedPreview(preview.bitmap!!)
+            else -> AsyncImage(photo.uri, "待处理照片", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         }
-        if (photo != null && preset == null) {
+        if (preview.loading) CircularProgressIndicator(Modifier.size(28.dp), color = Mint, strokeWidth = 2.dp)
+        if (preview.failed) {
+            Text("预览生成失败，请重新处理", Modifier.align(Alignment.BottomCenter).padding(16.dp).background(Color.Black.copy(alpha = .72f), CircleShape).padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White, style = MaterialTheme.typography.bodyMedium)
+        } else if (photo != null && effectivePresets.isEmpty()) {
             Text("选择水印预设后，即可在这里实时预览", Modifier.align(Alignment.BottomCenter).padding(16.dp).background(Color.Black.copy(alpha = .65f), CircleShape).padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White, style = MaterialTheme.typography.bodyMedium)
         }
     }

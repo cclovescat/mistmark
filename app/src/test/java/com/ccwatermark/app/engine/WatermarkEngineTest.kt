@@ -48,6 +48,44 @@ class WatermarkEngineTest {
         assertEquals(127, Color.red(result.getPixel(0, 0)))
     }
 
+    @Test fun multipleWatermarksAreAppliedInOrder() = runBlocking {
+        val source = bitmap(2, 1, Color.WHITE)
+        val first = bitmap(1, 1, Color.RED)
+        val second = bitmap(1, 1, Color.BLUE)
+
+        var result = engine.render(source, first, 1f, false)
+        result = engine.render(result, second, 1f, false)
+        bitmaps += result
+
+        assertEquals(Color.BLUE, result.getPixel(0, 0))
+        assertEquals(Color.BLUE, result.getPixel(1, 0))
+    }
+
+    @Test fun inversionOnlySamplesVisibleWatermarkPixels() = runBlocking {
+        val source = bitmap(2, 1, Color.BLACK).also {
+            it.setPixel(1, 0, Color.WHITE)
+        }
+        val watermark = bitmap(2, 1, Color.TRANSPARENT).also {
+            it.setPixel(0, 0, Color.BLACK)
+        }
+
+        val result = engine.render(source, watermark, 1f, true)
+        bitmaps += result
+
+        assertEquals(Color.WHITE, result.getPixel(0, 0))
+        assertEquals(Color.WHITE, result.getPixel(1, 0))
+    }
+
+    @Test fun originalColorWatermarkIsNotInverted() = runBlocking {
+        val source = bitmap(1, 1, Color.WHITE)
+        val watermark = bitmap(1, 1, Color.GREEN)
+
+        val result = engine.render(source, watermark, 1f, false)
+        bitmaps += result
+
+        assertEquals(Color.GREEN, result.getPixel(0, 0))
+    }
+
     private fun bitmap(width: Int, height: Int, color: Int): Bitmap =
         Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
             it.eraseColor(color)
