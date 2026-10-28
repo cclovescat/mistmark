@@ -2,6 +2,14 @@ package com.ccwatermark.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -73,8 +81,20 @@ fun MistMarkApp(viewModel: AppViewModel = viewModel()) {
             ) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding).statusBarsPadding()) {
                     AppHeader()
-                    Box(Modifier.weight(1f)) {
-                        when (tab) {
+                    AnimatedContent(
+                        targetState = tab,
+                        modifier = Modifier.weight(1f),
+                        transitionSpec = {
+                            val direction = if (targetState > initialState) 1 else -1
+                            val enter = fadeIn(tween(180, easing = CubicBezierEasing(0.23f, 1f, 0.32f, 1f))) +
+                                slideInHorizontally(tween(180, easing = CubicBezierEasing(0.23f, 1f, 0.32f, 1f))) { it * direction / 12 }
+                            val exit = fadeOut(tween(120)) +
+                                slideOutHorizontally(tween(140)) { it * direction / 16 }
+                            enter togetherWith exit
+                        },
+                        label = "mainTab",
+                    ) { currentTab ->
+                        when (currentTab) {
                             0 -> HomeScreen(
                                 state, selectedPresets,
                                 onOpacity = viewModel::setOpacity,

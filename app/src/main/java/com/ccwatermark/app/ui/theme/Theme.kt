@@ -90,13 +90,14 @@ fun MistMarkTheme(
         }
     }
     val base = Typography(
-        headlineLarge = TextStyle(fontSize = 30.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp),
-        headlineSmall = TextStyle(fontSize = 23.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold),
-        titleLarge = TextStyle(fontSize = 19.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold),
+        headlineLarge = TextStyle(fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp),
+        headlineSmall = TextStyle(fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp),
+        titleLarge = TextStyle(fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp),
         titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
         bodyLarge = TextStyle(fontSize = 15.sp, lineHeight = 23.sp),
-        bodyMedium = TextStyle(fontSize = 13.sp, lineHeight = 19.sp),
-        labelLarge = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+        bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+        bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
+        labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp),
     )
     val colors = if (darkTheme) DarkColors else LightColors
     MaterialTheme(

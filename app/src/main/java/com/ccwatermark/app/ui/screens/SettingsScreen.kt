@@ -1,6 +1,7 @@
 package com.ccwatermark.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ccwatermark.app.data.AppState
@@ -41,6 +44,7 @@ import com.ccwatermark.app.data.FontSizeOption
 import com.ccwatermark.app.data.ThemeMode
 import com.ccwatermark.app.ui.components.AccentButton
 import com.ccwatermark.app.ui.components.GlassCard
+import com.ccwatermark.app.ui.components.SectionHeader
 import com.ccwatermark.app.ui.theme.DialogSurface
 import com.ccwatermark.app.ui.theme.Mint
 import com.ccwatermark.app.ui.theme.SubtleFill
@@ -58,9 +62,17 @@ fun SettingsScreen(
 ) {
     val updateState by updateViewModel.state.collectAsState()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-        Text("设置", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.headlineLarge)
-        Text("调整界面主题与字体显示。", Modifier.padding(top = 6.dp, bottom = 20.dp), color = TextSecondary, style = MaterialTheme.typography.bodyLarge)
+        Column(Modifier.padding(top = 4.dp, bottom = 2.dp)) {
+            Text("设置", style = MaterialTheme.typography.headlineLarge)
+            Text(
+                "让雾印适应你的阅读与使用习惯。",
+                Modifier.padding(top = 4.dp),
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
 
+        SectionHeader("外观")
         GlassCard(Modifier.fillMaxWidth(), corner = 24) {
             Column(Modifier.padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -81,8 +93,9 @@ fun SettingsScreen(
                             ThemeMode.DAY -> Icons.Rounded.LightMode
                         }
                         Column(
-                            Modifier.weight(1f).clip(RoundedCornerShape(15.dp))
+                            Modifier.weight(1f).heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp))
                                 .background(if (selected) Mint.copy(alpha = .14f) else SubtleFill)
+                                .border(1.dp, if (selected) Mint.copy(alpha = .48f) else Color.Transparent, RoundedCornerShape(16.dp))
                                 .clickable { onThemeMode(mode) }.padding(vertical = 12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
@@ -99,12 +112,7 @@ fun SettingsScreen(
                     },
                     Modifier.padding(top = 12.dp), color = TextSecondary, style = MaterialTheme.typography.bodyMedium,
                 )
-            }
-        }
-
-        Text("字体", Modifier.padding(top = 25.dp, bottom = 12.dp), style = MaterialTheme.typography.titleMedium)
-        GlassCard(Modifier.fillMaxWidth(), corner = 24) {
-            Column(Modifier.padding(18.dp)) {
+                HorizontalDivider(Modifier.padding(vertical = 18.dp), color = SubtleFill)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.TextFields, null, tint = Mint, modifier = Modifier.size(21.dp))
                     Text("  字体大小", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -114,20 +122,20 @@ fun SettingsScreen(
                     FontSizeOption.entries.forEach { option ->
                         val selected = state.fontSize == option
                         Box(
-                            Modifier.weight(1f).clip(RoundedCornerShape(13.dp))
+                            Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(13.dp))
                                 .background(if (selected) Mint.copy(alpha = .14f) else SubtleFill)
-                                .clickable { onFontSize(option) }.padding(vertical = 11.dp),
+                                .border(1.dp, if (selected) Mint.copy(alpha = .48f) else Color.Transparent, RoundedCornerShape(13.dp))
+                                .clickable { onFontSize(option) },
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(option.label, color = if (selected) Mint else TextSecondary, style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
-                Text("雾印，让每一次创作都清晰可读", Modifier.padding(top = 14.dp), style = MaterialTheme.typography.bodyLarge)
             }
         }
 
-        Text("软件更新", Modifier.padding(top = 25.dp, bottom = 12.dp), style = MaterialTheme.typography.titleMedium)
+        SectionHeader("软件更新")
         GlassCard(Modifier.fillMaxWidth(), corner = 22) {
             Column(Modifier.padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -166,13 +174,13 @@ fun SettingsScreen(
             }
         }
 
-        Text("隐私与说明", Modifier.padding(top = 25.dp, bottom = 12.dp), style = MaterialTheme.typography.titleMedium)
+        SectionHeader("隐私与说明")
         GlassCard(Modifier.fillMaxWidth().padding(bottom = 24.dp), corner = 22) {
             Row(Modifier.padding(18.dp), verticalAlignment = Alignment.Top) {
                 Icon(Icons.Rounded.Lock, null, tint = Mint)
                 Column(Modifier.padding(start = 12.dp)) {
                     Text("所有处理都留在设备上", style = MaterialTheme.typography.titleMedium)
-                    Text("照片和水印处理均在本地完成，不会上传。仅检查更新时需要联网访问 GitHub；照片、水印预设和设置仅保存在本机，导出文件位于 DCIM/MistMark。", Modifier.padding(top = 5.dp), color = TextSecondary, style = MaterialTheme.typography.bodyLarge)
+                    Text("照片和水印处理均在本地完成，不会上传。仅检查更新时需要联网访问 GitHub；照片、水印预设和设置仅保存在本机，导出文件位于 DCIM/MistMark。", Modifier.padding(top = 5.dp), color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
                     Text("照片以 JPEG 质量 100 导出，保留原始分辨率；透明区域将合成为白色背景。", Modifier.padding(top = 12.dp), color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
                     Text("智能反色以每个水印覆盖区域为单位计算亮度。极复杂背景仍建议降低透明度后检查导出效果。", Modifier.padding(top = 12.dp), color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
                 }
