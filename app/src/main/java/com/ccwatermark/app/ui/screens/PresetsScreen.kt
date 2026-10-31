@@ -1,9 +1,12 @@
 package com.ccwatermark.app.ui.screens
 
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -23,11 +26,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -37,6 +42,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,12 +51,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.ccwatermark.app.data.AppState
 import com.ccwatermark.app.data.WatermarkPreset
+import com.ccwatermark.app.engine.WatermarkEngine
 import com.ccwatermark.app.ui.components.GlassCard
 import com.ccwatermark.app.ui.components.NewPresetDialog
 import com.ccwatermark.app.ui.components.RenamePresetDialog
@@ -59,7 +71,7 @@ import com.ccwatermark.app.ui.theme.Lavender
 import com.ccwatermark.app.ui.theme.Mint
 import com.ccwatermark.app.ui.theme.SubtleStroke
 import com.ccwatermark.app.ui.theme.TextSecondary
-import java.io.File
+import kotlinx.coroutines.CancellationException
 
 @Composable
 fun PresetsScreen(
@@ -176,6 +188,86 @@ fun PresetsScreen(
     }
 }
 
+private data class ThumbnailState(
+    val bitmap: Bitmap? = null,
+    val loading: Boolean = false,
+    val failed: Boolean = false,
+)
+
+@Composable
+private fun PresetThumbnail(preset: WatermarkPreset) {
+    val context = LocalContext.current
+    val engine = remember(context.applicationContext) { WatermarkEngine(context.applicationContext) }
+    var thumbnail by remember(preset.imagePath) { mutableStateOf(ThumbnailState(loading = true)) }
+    LaunchedEffect(preset.imagePath) {
+        thumbnail = ThumbnailState(loading = true)
+        thumbnail = try {
+            ThumbnailState(bitmap = engine.previewFile(preset.imagePath, maxDimension = 320))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            ThumbnailState(failed = true)
+        }
+    }
+    Box(
+        Modifier.size(80.dp).clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF858C96))
+            .border(1.dp, Color.White.copy(alpha = .24f), RoundedCornerShape(16.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        TransparencyGrid(Modifier.matchParentSize())
+        when {
+            thumbnail.bitmap != null -> PresetThumbnailImage(thumbnail.bitmap!!, preset.name)
+            thumbnail.loading -> CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
+            thumbnail.failed -> Icon(
+                Icons.Rounded.BrokenImage,
+                "水印预览加载失败",
+                modifier = Modifier.size(22.dp),
+                tint = Color.White.copy(alpha = .9f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PresetThumbnailImage(bitmap: Bitmap, name: String) {
+    DisposableEffect(bitmap) {
+        onDispose { if (!bitmap.isRecycled) bitmap.recycle() }
+    }
+    Image(
+        bitmap.asImageBitmap(),
+        name,
+        Modifier.fillMaxSize().padding(7.dp),
+        contentScale = ContentScale.Fit,
+    )
+}
+
+@Composable
+private fun TransparencyGrid(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val cell = 8.dp.toPx()
+        val light = Color(0xFFA2A8B1)
+        val dark = Color(0xFF737A84)
+        var row = 0
+        var y = 0f
+        while (y < size.height) {
+            var column = 0
+            var x = 0f
+            while (x < size.width) {
+                drawRect(
+                    color = if ((row + column) % 2 == 0) light else dark,
+                    topLeft = Offset(x, y),
+                    size = Size(minOf(cell, size.width - x), minOf(cell, size.height - y)),
+                )
+                x += cell
+                column++
+            }
+            y += cell
+            row++
+        }
+    }
+}
+
 @Composable
 private fun PresetCard(
     preset: WatermarkPreset,
@@ -195,14 +287,7 @@ private fun PresetCard(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(72.dp).clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .border(1.dp, SubtleStroke, RoundedCornerShape(16.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AsyncImage(File(preset.imagePath), preset.name, Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit)
-                }
+                PresetThumbnail(preset)
                 Column(Modifier.padding(start = 14.dp).weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
