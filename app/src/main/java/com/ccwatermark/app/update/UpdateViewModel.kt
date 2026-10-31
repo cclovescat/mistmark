@@ -66,30 +66,40 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
         val release = _state.value.release ?: return
         if (_state.value.status == UpdateStatus.DOWNLOADING) return
         _state.value = _state.value.copy(status = UpdateStatus.DOWNLOADING, progress = 0f, errorMessage = null, showDialog = true)
-        downloadJob = viewModelScope.launch {
+        val job = viewModelScope.launch {
+            val owner = coroutineContext[Job]
             try {
                 val apk = manager.download(release) { progress ->
-                    _state.value = _state.value.copy(progress = progress)
+                    if (downloadJob === owner) {
+                        _state.value = _state.value.copy(progress = progress)
+                    }
                 }
+                if (downloadJob !== owner) return@launch
                 _state.value = _state.value.copy(status = UpdateStatus.READY_TO_INSTALL, downloadedApkPath = apk.absolutePath)
                 try {
                     manager.install(apk)
                 } catch (error: Throwable) {
-                    _state.value = _state.value.copy(errorMessage = error.message ?: "无法打开系统安装器")
+                    if (downloadJob === owner) {
+                        _state.value = _state.value.copy(errorMessage = error.message ?: "无法打开系统安装器")
+                    }
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                _state.value = _state.value.copy(status = UpdateStatus.ERROR, errorMessage = error.message ?: "下载失败，请稍后重试")
+                if (downloadJob === owner) {
+                    _state.value = _state.value.copy(status = UpdateStatus.ERROR, errorMessage = error.message ?: "下载失败，请稍后重试")
+                }
             } finally {
-                downloadJob = null
+                if (downloadJob === owner) downloadJob = null
             }
         }
+        downloadJob = job
     }
 
     fun cancelDownload() {
-        downloadJob?.cancel()
-        downloadJob = null
+        val job = downloadJob ?: return
+        job.cancel()
+        if (downloadJob === job) downloadJob = null
         _state.value = _state.value.copy(status = UpdateStatus.AVAILABLE, progress = 0f, showDialog = false)
     }
 

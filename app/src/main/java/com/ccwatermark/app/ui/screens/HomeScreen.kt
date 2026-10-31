@@ -44,7 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,7 +92,7 @@ fun HomeScreen(
     onSave: () -> Unit,
 ) {
     val selectedPhoto = state.photos.find { it.id == state.selectedPhotoId } ?: state.photos.firstOrNull()
-    var previewPhotoId by remember { mutableStateOf<String?>(null) }
+    var previewPhotoId by rememberSaveable { mutableStateOf<String?>(null) }
     val previewPhoto = state.photos.find { it.id == previewPhotoId }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -114,7 +114,11 @@ fun HomeScreen(
             Box(
                 Modifier.fillMaxSize().clip(RoundedCornerShape(27.dp)).background(PreviewSurface),
             ) {
-                WatermarkPreview(selectedPhoto, selectedPresets, state.opacity, Modifier.fillMaxSize())
+                if (previewPhoto == null) {
+                    WatermarkPreview(selectedPhoto, selectedPresets, state.opacity, Modifier.fillMaxSize())
+                } else if (selectedPhoto != null) {
+                    AsyncImage(selectedPhoto.uri, "待处理照片", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                }
                 if (selectedPhoto != null) {
                     Surface(
                         shape = CircleShape,
@@ -374,6 +378,8 @@ private fun PhotoPreviewDialog(
     onReprocess: () -> Unit,
 ) {
     val effectivePresets = photo.appliedPresets.ifEmpty { selectedPresets }
+    val appliedIds = photo.appliedPresets.map { it.id }.toSet()
+    val hasAdditionalPreset = selectedPresets.any { it.id !in appliedIds }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -459,7 +465,7 @@ private fun PhotoPreviewDialog(
                             Icons.Rounded.Add,
                             onReprocess,
                             Modifier.fillMaxWidth().padding(top = 14.dp),
-                            !busy && selectedPresets.isNotEmpty(),
+                            !busy && hasAdditionalPreset,
                         )
                     }
                 }

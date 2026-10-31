@@ -2,6 +2,7 @@ package com.ccwatermark.app.data
 
 import android.app.Application
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Environment
@@ -27,6 +28,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<AppState> = _state.asStateFlow()
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            File(getApplication<Application>().cacheDir, "rendered").deleteRecursively()
+            File(getApplication<Application>().cacheDir, "updates").listFiles()
+                ?.filter { it.name.endsWith(".part") }
+                ?.forEach { it.delete() }
+        }
         viewModelScope.launch {
             runCatching { store.load() }.onSuccess { settings ->
                 _state.value = _state.value.copy(
@@ -44,12 +51,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val selectedPresets: List<WatermarkPreset> get() = _state.value.selectedPresetIds.mapNotNull { id -> _state.value.presets.find { it.id == id } }
 
     fun addPhotos(uris: List<Uri>) {
-        if (_state.value.busy) return
-        val items = uris.map { uri ->
-            PhotoItem(UUID.randomUUID().toString(), uri, displayName(uri))
+        if (_state.value.busy || uris.isEmpty()) return
+        val resolver = getApplication<Application>().contentResolver
+        viewModelScope.launch {
+            val items = withContext(Dispatchers.IO) {
+                uris.map { uri ->
+                    runCatching {
+                        resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    PhotoItem(UUID.randomUUID().toString(), uri, displayName(uri))
+                }
+            }
+            if (_state.value.busy) return@launch
+            val nextPhotos = _state.value.photos + items
+            _state.value = _state.value.copy(
+                photos = nextPhotos,
+                selectedPhotoId = _state.value.selectedPhotoId ?: items.firstOrNull()?.id,
+            )
         }
-        _state.value = _state.value.copy(photos = _state.value.photos + items)
-        if (_state.value.selectedPhotoId == null) _state.value = _state.value.copy(selectedPhotoId = items.firstOrNull()?.id)
     }
 
     fun selectPhoto(id: String) { _state.value = _state.value.copy(selectedPhotoId = id) }
@@ -109,11 +128,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (_state.value.busy) return
         launchSafely {
             store.delete(preset)
+            val affected = _state.value.photos.count { photo -> photo.appliedPresets.any { it.id == preset.id } }
             val remaining = _state.value.presets.filterNot { it.id == preset.id }
             _state.value = _state.value.copy(
                 presets = remaining,
                 selectedPresetIds = _state.value.selectedPresetIds.filterNot { it == preset.id },
-                message = "预设已删除",
+                photos = _state.value.photos.map { photo ->
+                    if (photo.appliedPresets.none { it.id == preset.id }) photo
+                    else photo.copy(appliedPresets = photo.appliedPresets.filterNot { it.id == preset.id })
+                },
+                message = if (affected == 0) "预设已删除" else "预设已删除，并从 $affected 张照片的水印链中移除",
             )
         }
     }
@@ -157,13 +181,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun reprocessSelectedPhoto() {
         if (_state.value.busy) return
         val item = _state.value.photos.find { it.id == _state.value.selectedPhotoId } ?: return
-        val additional = selectedPresets
+        val appliedIds = item.appliedPresets.map { it.id }.toSet()
+        val additional = selectedPresets.filterNot { it.id in appliedIds }
         if (item.outputPath == null || item.appliedPresets.isEmpty()) {
             _state.value = _state.value.copy(message = "请先生成照片，再追加其他水印")
             return
         }
         if (additional.isEmpty()) {
-            _state.value = _state.value.copy(message = "请选择要追加的水印预设")
+            _state.value = _state.value.copy(message = "请选择尚未应用的水印预设")
             return
         }
         _state.value = _state.value.copy(busy = true, progress = 0f)
@@ -281,6 +306,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } catch (error: Exception) {
             fallback
         }
+    }
+
+    override fun onCleared() {
+        _state.value.photos.forEach { photo -> photo.outputPath?.let { File(it).delete() } }
+        super.onCleared()
     }
 
     private fun launchSafely(block: suspend () -> Unit) {

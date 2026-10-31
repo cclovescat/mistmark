@@ -51,6 +51,17 @@ class WatermarkEngine(private val context: Context) {
             }
         }
 
+    suspend fun previewFile(path: String, maxDimension: Int = 1600): Bitmap = withContext(Dispatchers.IO) {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "无法读取预览图" }
+        val options = BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inSampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
+        }
+        BitmapFactory.decodeFile(path, options) ?: error("无法读取预览图")
+    }
+
     suspend fun renderToCache(photo: Uri, presets: List<WatermarkPreset>, opacity: Float, invertEnabled: Boolean): File =
         withContext(Dispatchers.Default) {
             require(presets.isNotEmpty()) { "请选择至少一个水印预设" }
@@ -225,7 +236,7 @@ class WatermarkEngine(private val context: Context) {
 
     private fun calculateSampleSize(width: Int, height: Int, maxDimension: Int): Int {
         var sample = 1
-        while (maxOf(width, height) / (sample * 2) > maxDimension) sample *= 2
+        while (maxOf(width, height) / sample > maxDimension) sample *= 2
         return sample
     }
 

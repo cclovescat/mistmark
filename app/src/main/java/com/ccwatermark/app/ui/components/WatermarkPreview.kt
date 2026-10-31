@@ -1,6 +1,7 @@
 package com.ccwatermark.app.ui.components
 
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -29,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.ccwatermark.app.data.PhotoItem
+import com.ccwatermark.app.data.PhotoState
 import com.ccwatermark.app.data.WatermarkPreset
 import com.ccwatermark.app.engine.WatermarkEngine
 import com.ccwatermark.app.ui.theme.Mint
@@ -43,18 +46,48 @@ private data class PreviewState(
     val failed: Boolean = false,
 )
 
+private data class PreviewKey(
+    val uri: Uri?,
+    val state: PhotoState?,
+    val outputPath: String?,
+    val invertEnabled: Boolean?,
+    val presets: List<WatermarkPreset>,
+    val opacity: Float,
+)
+
 @Composable
 fun WatermarkPreview(photo: PhotoItem?, presets: List<WatermarkPreset>, opacity: Float, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val engine = remember(context.applicationContext) { WatermarkEngine(context.applicationContext) }
     val effectivePresets = photo?.appliedPresets?.ifEmpty { presets } ?: emptyList()
-    val preview by produceState(PreviewState(), photo?.uri, photo?.state, photo?.outputPath, photo?.invertEnabled, effectivePresets, opacity) {
-        value = PreviewState(loading = photo != null && effectivePresets.isNotEmpty())
+    val hasOutput = photo?.outputPath != null
+    val key = PreviewKey(
+        uri = photo?.uri,
+        state = if (hasOutput) null else photo?.state,
+        outputPath = photo?.outputPath,
+        invertEnabled = if (hasOutput) null else photo?.invertEnabled,
+        presets = if (hasOutput) emptyList() else effectivePresets,
+        opacity = if (hasOutput) 0f else opacity,
+    )
+    val preview by produceState(
+        PreviewState(),
+        key.uri,
+        key.state,
+        key.outputPath,
+        key.invertEnabled,
+        key.presets,
+        key.opacity,
+    ) {
+        value = PreviewState(loading = photo != null && effectivePresets.isNotEmpty() && photo.state != PhotoState.WORKING)
         try {
-            if (photo != null && effectivePresets.isNotEmpty()) {
-                if (photo.outputPath == null) delay(180)
-                val bitmap = if (photo.outputPath != null) android.graphics.BitmapFactory.decodeFile(photo.outputPath)
-                else WatermarkEngine(context.applicationContext).preview(photo.uri, effectivePresets, opacity, photo.invertEnabled)
-                value = PreviewState(bitmap = bitmap ?: error("无法读取预览图"))
+            value = when {
+                photo == null -> PreviewState()
+                photo.outputPath != null -> PreviewState(bitmap = engine.previewFile(photo.outputPath))
+                photo.state == PhotoState.WORKING || effectivePresets.isEmpty() -> PreviewState()
+                else -> {
+                    delay(180)
+                    PreviewState(bitmap = engine.preview(photo.uri, effectivePresets, opacity, photo.invertEnabled))
+                }
             }
         } catch (error: CancellationException) {
             throw error

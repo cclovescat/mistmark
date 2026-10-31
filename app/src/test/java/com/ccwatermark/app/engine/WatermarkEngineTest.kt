@@ -6,12 +6,15 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.File
+import java.io.FileOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -74,6 +77,19 @@ class WatermarkEngineTest {
 
         assertEquals(Color.WHITE, result.getPixel(0, 0))
         assertEquals(Color.WHITE, result.getPixel(1, 0))
+    }
+
+    @Test fun generatedPreviewIsSampledToRequestedSize() = runBlocking {
+        val source = bitmap(3200, 2, Color.WHITE)
+        val file = File(ApplicationProvider.getApplicationContext<android.content.Context>().cacheDir, "preview-test.png")
+        FileOutputStream(file).use { source.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        try {
+            val preview = engine.previewFile(file.absolutePath, maxDimension = 1600)
+            bitmaps += preview
+            assertEquals(1600, preview.width)
+        } finally {
+            file.delete()
+        }
     }
 
     @Test fun originalColorWatermarkIsNotInverted() = runBlocking {

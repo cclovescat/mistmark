@@ -8,6 +8,9 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.ccwatermark.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -16,6 +19,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.UUID
 
 @Serializable
 data class GitHubRelease(
@@ -102,9 +106,14 @@ class GitHubUpdateManager(private val context: Context) {
         val directory = File(context.cacheDir, "updates")
         if (!directory.exists() && !directory.mkdirs()) error("无法创建更新目录")
         val output = File(directory, "mistmark-${release.version}.apk")
-        val temporary = File(directory, "mistmark-${release.version}.apk.part")
-        directory.listFiles()?.filter { it.name.endsWith(".apk") && it.name != output.name }?.forEach { it.delete() }
+        val temporary = File(directory, "mistmark-${release.version}-${UUID.randomUUID()}.part")
+        directory.listFiles()
+            ?.filter { (it.name.endsWith(".apk") && it.name != output.name) || it.name.endsWith(".part") }
+            ?.forEach { it.delete() }
         val connection = open(release.apkUrl)
+        val cancellationHandle = coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause is kotlinx.coroutines.CancellationException) connection.disconnect()
+        }
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) error("下载失败（HTTP ${connection.responseCode}）")
             val total = connection.contentLengthLong.takeIf { it > 0 } ?: release.apkSize
@@ -114,6 +123,7 @@ class GitHubUpdateManager(private val context: Context) {
                 temporary.outputStream().buffered().use { stream ->
                     val buffer = ByteArray(64 * 1024)
                     while (true) {
+                        currentCoroutineContext().ensureActive()
                         val count = input.read(buffer)
                         if (count < 0) break
                         stream.write(buffer, 0, count)
@@ -123,6 +133,7 @@ class GitHubUpdateManager(private val context: Context) {
                     }
                 }
             }
+            currentCoroutineContext().ensureActive()
             if (downloaded == 0L) error("下载的 APK 文件为空")
             val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
             val expectedHash = requireNotNull(release.sha256) { "APK 缺少 SHA-256 校验信息" }
@@ -133,8 +144,10 @@ class GitHubUpdateManager(private val context: Context) {
             output
         } catch (error: Throwable) {
             temporary.delete()
+            currentCoroutineContext().ensureActive()
             throw error
         } finally {
+            cancellationHandle?.dispose()
             connection.disconnect()
         }
     }
