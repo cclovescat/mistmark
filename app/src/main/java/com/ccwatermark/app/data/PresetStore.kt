@@ -32,9 +32,12 @@ class PresetStore(private val context: Context) {
 
     private suspend fun read(): StoredSettings {
         val preferences = context.store.data.first()
+        val defaultOpacity = preferences[opacityKey]?.coerceIn(0.05f, 1f) ?: 0.55f
         val presets = preferences[presetsKey]?.let {
             runCatching { json.decodeFromString(ListSerializer(WatermarkPreset.serializer()), it) }.getOrNull()
-        }?.filter { File(it.imagePath).exists() } ?: emptyList()
+        }?.filter { File(it.imagePath).exists() }
+            ?.map { it.copy(opacity = it.opacity?.coerceIn(0.05f, 1f) ?: defaultOpacity) }
+            ?: emptyList()
         val storedIds = preferences[selectedPresetsKey]?.let {
             runCatching { json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull()
         } ?: listOfNotNull(preferences[selectedKey])
@@ -42,13 +45,13 @@ class PresetStore(private val context: Context) {
         return StoredSettings(
             presets = presets,
             selectedIds = selectedIds,
-            opacity = preferences[opacityKey]?.coerceIn(0.05f, 1f) ?: 0.55f,
+            opacity = defaultOpacity,
             themeMode = preferences[themeModeKey]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
             fontSize = preferences[fontSizeKey]?.let { runCatching { FontSizeOption.valueOf(it) }.getOrNull() } ?: FontSizeOption.STANDARD,
         )
     }
 
-    suspend fun importWatermark(uri: Uri, name: String, autoInvert: Boolean): WatermarkPreset = mutex.withLock {
+    suspend fun importWatermark(uri: Uri, name: String, autoInvert: Boolean, opacity: Float): WatermarkPreset = mutex.withLock {
         val directory = File(context.filesDir, "watermarks").apply { mkdirs() }
         val id = UUID.randomUUID().toString()
         val output = File(directory, "$id.png")
@@ -61,7 +64,15 @@ class PresetStore(private val context: Context) {
             output.delete()
             error("请选择有效的 PNG 或 JPG 水印图")
         }
-        val preset = WatermarkPreset(id, name.trim().ifBlank { "未命名水印" }, output.absolutePath, autoInvert, bounds.outWidth, bounds.outHeight)
+        val preset = WatermarkPreset(
+            id = id,
+            name = name.trim().ifBlank { "未命名水印" },
+            imagePath = output.absolutePath,
+            autoInvert = autoInvert,
+            width = bounds.outWidth,
+            height = bounds.outHeight,
+            opacity = opacity.coerceIn(0.05f, 1f),
+        )
         val current = read()
         savePresets(current.presets + preset, current.selectedIds + preset.id)
         preset
@@ -100,6 +111,15 @@ class PresetStore(private val context: Context) {
 
     suspend fun setOpacity(value: Float): Unit = mutex.withLock {
         context.store.edit { it[opacityKey] = value.coerceIn(0.05f, 1f) }
+    }
+
+    suspend fun setPresetOpacity(id: String, value: Float): Unit = mutex.withLock {
+        val current = read()
+        require(current.presets.any { it.id == id }) { "水印预设不存在" }
+        savePresets(
+            current.presets.map { if (it.id == id) it.copy(opacity = value.coerceIn(0.05f, 1f)) else it },
+            current.selectedIds,
+        )
     }
 
     suspend fun setThemeMode(mode: ThemeMode): Unit = mutex.withLock {

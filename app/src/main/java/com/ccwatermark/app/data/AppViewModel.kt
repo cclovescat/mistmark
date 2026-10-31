@@ -98,7 +98,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun importWatermark(uri: Uri, name: String, autoInvert: Boolean) {
         if (_state.value.busy) return
         launchSafely {
-            val preset = store.importWatermark(uri, name, autoInvert)
+            val preset = store.importWatermark(uri, name, autoInvert, _state.value.opacity)
             _state.value = _state.value.copy(
                 presets = _state.value.presets + preset,
                 selectedPresetIds = _state.value.selectedPresetIds + preset.id,
@@ -142,10 +142,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setOpacity(value: Float) {
+    fun setPresetOpacity(id: String, value: Float) {
         if (_state.value.busy) return
-        _state.value = _state.value.copy(opacity = value)
-        launchSafely { store.setOpacity(value) }
+        val opacity = value.coerceIn(0.05f, 1f)
+        _state.value = _state.value.copy(
+            presets = _state.value.presets.map { if (it.id == id) it.copy(opacity = opacity) else it },
+        )
+        launchSafely { store.setPresetOpacity(id, opacity) }
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -240,7 +243,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val previousPath = item.outputPath
         updatePhoto(item.id) { it.copy(state = PhotoState.WORKING, errorMessage = null) }
         try {
-            val output = engine.renderToCache(item.uri, presets, _state.value.opacity, invertEnabled)
+            val output = engine.renderToCache(item.uri, presets, invertEnabled)
             if (previousPath != null && previousPath != output.absolutePath) File(previousPath).delete()
             updatePhoto(item.id) {
                 it.copy(

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Opacity
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -61,6 +62,7 @@ import com.ccwatermark.app.data.AppState
 import com.ccwatermark.app.data.PhotoItem
 import com.ccwatermark.app.data.PhotoState
 import com.ccwatermark.app.data.WatermarkPreset
+import com.ccwatermark.app.data.layerOpacity
 import com.ccwatermark.app.ui.components.AccentButton
 import com.ccwatermark.app.ui.components.GlassCard
 import com.ccwatermark.app.ui.components.QuietButton
@@ -79,7 +81,7 @@ import kotlin.math.roundToInt
 fun HomeScreen(
     state: AppState,
     selectedPresets: List<WatermarkPreset>,
-    onOpacity: (Float) -> Unit,
+    onPresetOpacity: (String, Float) -> Unit,
     onAddPhotos: () -> Unit,
     onGoPresets: () -> Unit,
     onSelectPreset: (String) -> Unit,
@@ -115,7 +117,7 @@ fun HomeScreen(
                 Modifier.fillMaxSize().clip(RoundedCornerShape(27.dp)).background(PreviewSurface),
             ) {
                 if (previewPhoto == null) {
-                    WatermarkPreview(selectedPhoto, selectedPresets, state.opacity, Modifier.fillMaxSize())
+                    WatermarkPreview(selectedPhoto, selectedPresets, Modifier.fillMaxSize())
                 } else if (selectedPhoto != null) {
                     AsyncImage(selectedPhoto.uri, "待处理照片", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 }
@@ -206,21 +208,39 @@ fun HomeScreen(
             }
         }
 
-        SectionHeader("透明度", meta = "${(state.opacity * 100).roundToInt()}%")
-        GlassCard(Modifier.fillMaxWidth(), corner = 20) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Rounded.Opacity, null, tint = Mint, modifier = Modifier.size(20.dp))
-                Slider(
-                    state.opacity,
-                    onOpacity,
-                    Modifier.weight(1f).padding(start = 12.dp),
-                    valueRange = .05f..1f,
-                    enabled = !state.busy,
-                    colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Mint, inactiveTrackColor = SubtleFill),
-                )
+        if (selectedPresets.isNotEmpty()) {
+            SectionHeader("水印透明度", meta = "${selectedPresets.size} 层")
+            GlassCard(Modifier.fillMaxWidth(), corner = 20) {
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    selectedPresets.forEachIndexed { index, preset ->
+                        if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = SubtleFill)
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Opacity, null, tint = Mint, modifier = Modifier.size(17.dp))
+                                Text(
+                                    "  ${index + 1}. ${preset.name}",
+                                    Modifier.weight(1f).padding(end = 8.dp),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "${(preset.layerOpacity * 100).roundToInt()}%",
+                                    color = Mint,
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
+                            Slider(
+                                preset.layerOpacity,
+                                { value -> onPresetOpacity(preset.id, value) },
+                                Modifier.fillMaxWidth(),
+                                valueRange = .05f..1f,
+                                enabled = !state.busy,
+                                colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Mint, inactiveTrackColor = SubtleFill),
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -356,7 +376,6 @@ fun HomeScreen(
         PhotoPreviewDialog(
             photo = photo,
             selectedPresets = selectedPresets,
-            opacity = state.opacity,
             progress = state.progress,
             busy = state.busy,
             onDismiss = { previewPhotoId = null },
@@ -370,7 +389,6 @@ fun HomeScreen(
 private fun PhotoPreviewDialog(
     photo: PhotoItem,
     selectedPresets: List<WatermarkPreset>,
-    opacity: Float,
     progress: Float,
     busy: Boolean,
     onDismiss: () -> Unit,
@@ -413,7 +431,7 @@ private fun PhotoPreviewDialog(
                 }
 
                 Box(Modifier.fillMaxWidth().weight(1f).background(PreviewSurface)) {
-                    WatermarkPreview(photo, selectedPresets, opacity, Modifier.fillMaxSize())
+                    WatermarkPreview(photo, selectedPresets, Modifier.fillMaxSize())
                 }
 
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {

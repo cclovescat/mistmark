@@ -98,7 +98,7 @@ fun MistMarkApp(viewModel: AppViewModel = viewModel()) {
                         when (currentTab) {
                             0 -> HomeScreen(
                                 state, selectedPresets,
-                                onOpacity = viewModel::setOpacity,
+                                onPresetOpacity = viewModel::setPresetOpacity,
                                 onAddPhotos = { if (!state.busy) picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                 onGoPresets = { tab = 1 },
                                 onSelectPreset = viewModel::selectPreset,

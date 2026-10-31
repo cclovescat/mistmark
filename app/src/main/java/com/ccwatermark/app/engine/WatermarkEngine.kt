@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.net.Uri
 import androidx.exifinterface.media.ExifInterface
 import com.ccwatermark.app.data.WatermarkPreset
+import com.ccwatermark.app.data.layerOpacity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -18,7 +19,7 @@ import java.io.File
 import kotlin.math.min
 
 class WatermarkEngine(private val context: Context) {
-    suspend fun preview(photo: Uri, presets: List<WatermarkPreset>, opacity: Float, invertEnabled: Boolean): Bitmap =
+    suspend fun preview(photo: Uri, presets: List<WatermarkPreset>, invertEnabled: Boolean): Bitmap =
         withContext(Dispatchers.Default) {
             require(presets.isNotEmpty()) { "请选择至少一个水印预设" }
             val originalSize = readSize(photo)
@@ -38,7 +39,7 @@ class WatermarkEngine(private val context: Context) {
                         )
                     } else watermark
                     try {
-                        result = render(result, previewWatermark, opacity, invertEnabled && preset.autoInvert)
+                        result = render(result, previewWatermark, preset.layerOpacity, invertEnabled && preset.autoInvert)
                     } finally {
                         if (previewWatermark !== watermark) previewWatermark.recycle()
                         watermark.recycle()
@@ -62,7 +63,7 @@ class WatermarkEngine(private val context: Context) {
         BitmapFactory.decodeFile(path, options) ?: error("无法读取预览图")
     }
 
-    suspend fun renderToCache(photo: Uri, presets: List<WatermarkPreset>, opacity: Float, invertEnabled: Boolean): File =
+    suspend fun renderToCache(photo: Uri, presets: List<WatermarkPreset>, invertEnabled: Boolean): File =
         withContext(Dispatchers.Default) {
             require(presets.isNotEmpty()) { "请选择至少一个水印预设" }
             var result = decodeUri(photo, Int.MAX_VALUE)
@@ -72,7 +73,7 @@ class WatermarkEngine(private val context: Context) {
                     val watermark = BitmapFactory.decodeFile(preset.imagePath)
                         ?: error("无法读取水印图")
                     result = try {
-                        render(result, watermark, opacity, invertEnabled && preset.autoInvert)
+                        render(result, watermark, preset.layerOpacity, invertEnabled && preset.autoInvert)
                     } finally {
                         watermark.recycle()
                     }

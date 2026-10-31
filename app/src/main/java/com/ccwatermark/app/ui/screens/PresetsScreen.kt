@@ -5,19 +5,23 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,7 +32,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
@@ -38,6 +44,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,10 +63,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.ccwatermark.app.data.AppState
 import com.ccwatermark.app.data.WatermarkPreset
 import com.ccwatermark.app.engine.WatermarkEngine
@@ -85,6 +96,7 @@ fun PresetsScreen(
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
     var renaming by remember { mutableStateOf<WatermarkPreset?>(null) }
     var deleting by remember { mutableStateOf<WatermarkPreset?>(null) }
+    var previewing by remember { mutableStateOf<WatermarkPreset?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> pendingUri = uri }
 
     LazyColumn(
@@ -96,7 +108,7 @@ fun PresetsScreen(
             Column(Modifier.padding(top = 4.dp, bottom = 4.dp)) {
                 Text("水印库", style = MaterialTheme.typography.headlineLarge)
                 Text(
-                    "上传一次，随时组合。每个预设独立保存反色偏好。",
+                    "上传一次，随时组合。每个预设独立保存反色与透明度偏好。",
                     Modifier.padding(top = 4.dp),
                     color = TextSecondary,
                     style = MaterialTheme.typography.bodyMedium,
@@ -155,6 +167,7 @@ fun PresetsScreen(
                 selected = preset.id in state.selectedPresetIds,
                 busy = state.busy,
                 onSelect = { onSelect(preset.id) },
+                onPreview = { previewing = preset },
                 onRename = { renaming = preset },
                 onToggle = { onToggle(preset) },
                 onDelete = { deleting = preset },
@@ -186,6 +199,9 @@ fun PresetsScreen(
             dismissButton = { TextButton({ deleting = null }) { Text("取消") } },
         )
     }
+    previewing?.let { preset ->
+        PresetPreviewDialog(preset = preset, onDismiss = { previewing = null })
+    }
 }
 
 private data class ThumbnailState(
@@ -195,7 +211,7 @@ private data class ThumbnailState(
 )
 
 @Composable
-private fun PresetThumbnail(preset: WatermarkPreset) {
+private fun PresetThumbnail(preset: WatermarkPreset, onClick: () -> Unit) {
     val context = LocalContext.current
     val engine = remember(context.applicationContext) { WatermarkEngine(context.applicationContext) }
     var thumbnail by remember(preset.imagePath) { mutableStateOf(ThumbnailState(loading = true)) }
@@ -212,12 +228,20 @@ private fun PresetThumbnail(preset: WatermarkPreset) {
     Box(
         Modifier.size(80.dp).clip(RoundedCornerShape(16.dp))
             .background(Color(0xFF858C96))
-            .border(1.dp, Color.White.copy(alpha = .24f), RoundedCornerShape(16.dp)),
+            .border(1.dp, Color.White.copy(alpha = .24f), RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         TransparencyGrid(Modifier.matchParentSize())
         when {
-            thumbnail.bitmap != null -> PresetThumbnailImage(thumbnail.bitmap!!, preset.name)
+            thumbnail.bitmap != null -> PresetBitmapImage(
+                bitmap = thumbnail.bitmap!!,
+                name = preset.name,
+                modifier = Modifier.fillMaxSize().padding(5.dp).graphicsLayer {
+                    scaleX = 1.5f
+                    scaleY = 1.5f
+                },
+            )
             thumbnail.loading -> CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 1.5.dp)
             thumbnail.failed -> Icon(
                 Icons.Rounded.BrokenImage,
@@ -226,18 +250,25 @@ private fun PresetThumbnail(preset: WatermarkPreset) {
                 tint = Color.White.copy(alpha = .9f),
             )
         }
+        Box(
+            Modifier.align(Alignment.TopEnd).padding(4.dp).size(20.dp)
+                .background(Color.Black.copy(alpha = .55f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.Fullscreen, "查看大图", Modifier.size(12.dp), tint = Color.White)
+        }
     }
 }
 
 @Composable
-private fun PresetThumbnailImage(bitmap: Bitmap, name: String) {
+private fun PresetBitmapImage(bitmap: Bitmap, name: String, modifier: Modifier) {
     DisposableEffect(bitmap) {
         onDispose { if (!bitmap.isRecycled) bitmap.recycle() }
     }
     Image(
         bitmap.asImageBitmap(),
         name,
-        Modifier.fillMaxSize().padding(7.dp),
+        modifier,
         contentScale = ContentScale.Fit,
     )
 }
@@ -269,11 +300,134 @@ private fun TransparencyGrid(modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun PresetPreviewDialog(preset: WatermarkPreset, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val engine = remember(context.applicationContext) { WatermarkEngine(context.applicationContext) }
+    var preview by remember(preset.imagePath) { mutableStateOf(ThumbnailState(loading = true)) }
+    var zoom by rememberSaveable(preset.id) { mutableStateOf(1f) }
+    var backdrop by rememberSaveable(preset.id) { mutableStateOf(0) }
+    LaunchedEffect(preset.imagePath) {
+        preview = try {
+            ThumbnailState(bitmap = engine.previewFile(preset.imagePath, maxDimension = 1600))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            ThumbnailState(failed = true)
+        }
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            Modifier.fillMaxWidth(.94f).fillMaxHeight(.88f),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 24.dp,
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 20.dp, top = 10.dp, end = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(preset.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "${preset.width} × ${preset.height} px · 原始尺寸平铺",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    IconButton(onDismiss, Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Close, "关闭预览", tint = TextSecondary)
+                    }
+                }
+                Box(
+                    Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(
+                            when (backdrop) {
+                                1 -> Color.White
+                                2 -> Color(0xFF16181D)
+                                else -> Color(0xFF858C96)
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (backdrop == 0) TransparencyGrid(Modifier.matchParentSize())
+                    when {
+                        preview.bitmap != null -> PresetBitmapImage(
+                            bitmap = preview.bitmap!!,
+                            name = preset.name,
+                            modifier = Modifier.fillMaxSize().padding(16.dp).graphicsLayer {
+                                scaleX = zoom
+                                scaleY = zoom
+                            },
+                        )
+                        preview.failed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Rounded.BrokenImage, null, tint = Color.White, modifier = Modifier.size(30.dp))
+                            Text("水印文件读取失败", Modifier.padding(top = 8.dp), color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        else -> CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 2.dp)
+                    }
+                }
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("背景", Modifier.weight(1f), color = TextSecondary, style = MaterialTheme.typography.labelLarge)
+                        listOf("棋盘", "白色", "深色").forEachIndexed { index, label ->
+                            PreviewChoice(label, backdrop == index) { backdrop = index }
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("缩放", Modifier.weight(1f), color = TextSecondary, style = MaterialTheme.typography.labelLarge)
+                        listOf(1f, 1.5f, 2f).forEach { value ->
+                            PreviewChoice("${(value * 100).toInt()}%", zoom == value) { zoom = value }
+                        }
+                    }
+                    Text(
+                        "150% 和 200% 会裁剪边缘，仅用于检查细节，不影响导出效果",
+                        Modifier.padding(top = 8.dp),
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewChoice(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = CircleShape,
+        color = if (selected) Mint.copy(alpha = .16f) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (selected) Mint.copy(alpha = .58f) else MaterialTheme.colorScheme.outline.copy(alpha = .18f)),
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Box(
+            Modifier.heightIn(min = 44.dp).padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                label,
+                color = if (selected) Mint else TextSecondary,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+    }
+}
+
+@Composable
 private fun PresetCard(
     preset: WatermarkPreset,
     selected: Boolean,
     busy: Boolean,
     onSelect: () -> Unit,
+    onPreview: () -> Unit,
     onRename: () -> Unit,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
@@ -287,7 +441,7 @@ private fun PresetCard(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                PresetThumbnail(preset)
+                PresetThumbnail(preset, onPreview)
                 Column(Modifier.padding(start = 14.dp).weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(

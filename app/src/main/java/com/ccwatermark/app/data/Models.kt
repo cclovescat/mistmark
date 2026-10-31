@@ -11,7 +11,11 @@ data class WatermarkPreset(
     val autoInvert: Boolean = true,
     val width: Int = 0,
     val height: Int = 0,
+    val opacity: Float? = null,
 )
+
+val WatermarkPreset.layerOpacity: Float
+    get() = opacity ?: 0.55f
 
 data class PhotoItem(
     val id: String,

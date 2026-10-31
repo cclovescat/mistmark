@@ -52,11 +52,10 @@ private data class PreviewKey(
     val outputPath: String?,
     val invertEnabled: Boolean?,
     val presets: List<WatermarkPreset>,
-    val opacity: Float,
 )
 
 @Composable
-fun WatermarkPreview(photo: PhotoItem?, presets: List<WatermarkPreset>, opacity: Float, modifier: Modifier = Modifier) {
+fun WatermarkPreview(photo: PhotoItem?, presets: List<WatermarkPreset>, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val engine = remember(context.applicationContext) { WatermarkEngine(context.applicationContext) }
     val effectivePresets = photo?.appliedPresets?.ifEmpty { presets } ?: emptyList()
@@ -67,7 +66,6 @@ fun WatermarkPreview(photo: PhotoItem?, presets: List<WatermarkPreset>, opacity:
         outputPath = photo?.outputPath,
         invertEnabled = if (hasOutput) null else photo?.invertEnabled,
         presets = if (hasOutput) emptyList() else effectivePresets,
-        opacity = if (hasOutput) 0f else opacity,
     )
     val preview by produceState(
         PreviewState(),
@@ -76,7 +74,6 @@ fun WatermarkPreview(photo: PhotoItem?, presets: List<WatermarkPreset>, opacity:
         key.outputPath,
         key.invertEnabled,
         key.presets,
-        key.opacity,
     ) {
         value = PreviewState(loading = photo != null && effectivePresets.isNotEmpty() && photo.state != PhotoState.WORKING)
         try {
@@ -86,7 +83,7 @@ fun WatermarkPreview(photo: PhotoItem?, presets: List<WatermarkPreset>, opacity:
                 photo.state == PhotoState.WORKING || effectivePresets.isEmpty() -> PreviewState()
                 else -> {
                     delay(180)
-                    PreviewState(bitmap = engine.preview(photo.uri, effectivePresets, opacity, photo.invertEnabled))
+                    PreviewState(bitmap = engine.preview(photo.uri, effectivePresets, photo.invertEnabled))
                 }
             }
         } catch (error: CancellationException) {
